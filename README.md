@@ -52,7 +52,7 @@ Chaquopy 对部分原生包没有 Android 构建,移植层做了以下适配(由
 
 1. Java `CfClearanceHelper` 用真实 WebView(Chromium 内核,指纹/JS 引擎均为真)加载 `chatgpt.com`,等待 Cloudflare 自动放行并签发 `cf_clearance`;
 2. Python `cf_bypass` 取回 clearance Cookie 与 WebView 真实 UA,注入 httpx 会话并移除与 Android UA 矛盾的 Windows/Edge 高熵头;
-3. 后续请求凭 clearance 通过 CF;过期(15 分钟)或 403 时自动刷新重试。
+3. 后续请求凭 clearance 通过 CF;过期(15 分钟)或被 403/503 拒绝时自动刷新重试。刷新前会先定向清空目标站残留 Cookie(CookieManager 为应用级共享存储),确保轮询拿到的是 CF 本次新签发的 clearance,而非已被拒绝的旧值。
 
 注意:clearance 与 UA、出口 IP 绑定。**若设备出口 IP 被 Cloudflare 风控(表现为 clearance 获取超时),请在设置中配置代理**。首次对话会比桌面版慢数秒(WebView 放行耗时)。
 

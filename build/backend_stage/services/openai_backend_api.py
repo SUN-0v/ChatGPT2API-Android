@@ -1555,8 +1555,8 @@ class OpenAIBackendAPI:
             headers=self._bootstrap_headers(),
             timeout=30,
         )
-        if response.status_code == 403 and self._apply_cf_clearance(force=True):
-            print("[cf] bootstrap 403, 已刷新 Cloudflare clearance, 重试一次", flush=True)
+        if response.status_code in (403, 503) and self._apply_cf_clearance(force=True):
+            print(f"[cf] bootstrap {response.status_code}, 已刷新 Cloudflare clearance, 重试一次", flush=True)
             response = self.session.get(
                 self.base_url + "/",
                 headers=self._bootstrap_headers(),

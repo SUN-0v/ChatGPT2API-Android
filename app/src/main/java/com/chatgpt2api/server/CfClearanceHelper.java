@@ -1,6 +1,7 @@
 package com.chatgpt2api.server;
 
 import android.content.Context;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.webkit.CookieManager;
@@ -72,6 +73,11 @@ public final class CfClearanceHelper {
                 s.setAllowContentAccess(false);
                 final String ua = s.getUserAgentString();
                 final CookieManager cm = CookieManager.getInstance();
+                cm.setAcceptCookie(true);
+                // 关键: CookieManager 是应用级共享存储, WebView 销毁后 Cookie 仍保留。
+                // 若不清掉, 轮询器第 1 次检查就会读到上一次遗留的(可能已被 CF 拒绝的)
+                // cf_clearance 并立即返回, 导致 403 刷新重试永远拿到同一个坏 Cookie。
+                clearCookiesForUrl(cm, url);
                 final long deadline = System.currentTimeMillis() + timeoutMs;
                 LogBus.i(TAG, "WebView 加载 " + url + " , 等待 Cloudflare 放行...");
 
@@ -83,6 +89,7 @@ public final class CfClearanceHelper {
                             String cookie = cm.getCookie(url);
                             if (cookie != null && cookie.contains("cf_clearance=")) {
                                 LogBus.i(TAG, "已取得 cf_clearance");
+                                cm.flush();
                                 result[0] = ok(ua, cookie);
                                 done.countDown();
                                 return;
@@ -124,6 +131,34 @@ public final class CfClearanceHelper {
         });
         if (!finished && result[0] == null) return error("internal timeout");
         return result[0] != null ? result[0] : error("no result");
+    }
+
+    /**
+     * 仅使目标站点的 Cookie 过期(CookieManager 没有按域删除 API,
+     * removeAllCookies 会误伤 WebActivity 管理面板 127.0.0.1 的登录态)。
+     * cf_clearance 按 Domain=.chatgpt.com 签发, 需同时覆盖 host-only 与 domain 两种形态。
+     */
+    private static void clearCookiesForUrl(CookieManager cm, String url) {
+        try {
+            String existing = cm.getCookie(url);
+            if (existing == null || existing.isEmpty()) return;
+            String host = Uri.parse(url).getHost();
+            for (String part : existing.split(";")) {
+                String name = part.trim();
+                int eq = name.indexOf('=');
+                if (eq > 0) name = name.substring(0, eq).trim();
+                if (name.isEmpty()) continue;
+                String expired = name + "=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/";
+                cm.setCookie(url, expired);
+                if (host != null && !host.isEmpty()) {
+                    cm.setCookie(url, name + "=; Domain=" + host + "; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/");
+                    cm.setCookie(url, name + "=; Domain=." + host + "; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/");
+                }
+            }
+            cm.flush();
+        } catch (Throwable t) {
+            LogBus.e(TAG, "清理目标站 Cookie 失败: " + t);
+        }
     }
 
     private static String ok(String ua, String cookie) {
