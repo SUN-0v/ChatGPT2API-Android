@@ -158,11 +158,18 @@ CF_PATCHES: list[tuple[str, str, str]] = [
     def _bootstrap(self) -> None:
         """预热首页，并提取 PoW 相关脚本引用。"""
         self._apply_cf_clearance()
-        response = self.session.get(
-            self.base_url + "/",
-            headers=self._bootstrap_headers(),
-            timeout=30,
-        )
+        try:
+            response = self.session.get(
+                self.base_url + "/",
+                headers=self._bootstrap_headers(),
+                timeout=30,
+            )
+        except Exception as exc:
+            hint = ""
+            if cf_bypass is not None and cf_bypass.available():
+                hint = ("(WebView 已取到 clearance 但连接仍被重置, 多为 httpx 与系统网络出口不一致: "
+                        "请在设置中配置与系统/VPN 相同的代理后重试)")
+            raise RuntimeError(f"bootstrap 连接失败: {exc.__class__.__name__}: {exc} {hint}") from exc
         if response.status_code in (403, 503) and self._apply_cf_clearance(force=True):
             print(f"[cf] bootstrap {response.status_code}, 已刷新 Cloudflare clearance, 重试一次", flush=True)
             response = self.session.get(
@@ -171,6 +178,42 @@ CF_PATCHES: list[tuple[str, str, str]] = [
                 timeout=30,
             )
         ensure_ok(response, "bootstrap")''',
+    ),
+    (
+        # httpx 读不到 Android 系统代理: WebView 能过 CF 但 httpx 直连被重置(SSL EOF),
+        # 未手动配置代理时自动跟随系统代理, 与 WebView 出口对齐(clearance 绑定出口 IP)
+        "services/proxy_service.py",
+        '''class ProxySettingsStore:
+    def build_session_kwargs(self, **session_kwargs) -> dict[str, object]:
+        proxy = config.get_proxy_settings()
+        if proxy:
+            session_kwargs["proxy"] = proxy
+        return session_kwargs''',
+        '''def _android_system_proxy() -> str:
+    """Android: 读取系统代理, 返回 "http://host:port"; 非 Android / 无系统代理返回 ""。
+
+    背景: WebView 走系统代理/VPN 能访问 chatgpt.com, 而 httpx 读不到 Android
+    系统代理会直连, 导致连接被重置(SSL EOF)。cf_clearance 又与出口 IP 绑定,
+    两侧必须走同一出口。
+    """
+    try:
+        from com.chatgpt2api.server import CfClearanceHelper  # Chaquopy import hook
+
+        raw = str(CfClearanceHelper.getSystemProxy() or "").strip()
+        if raw:
+            return "http://" + raw
+    except Exception:
+        pass
+    return ""
+
+
+class ProxySettingsStore:
+    def build_session_kwargs(self, **session_kwargs) -> dict[str, object]:
+        # 手动配置的代理优先; 未配置时自动跟随 Android 系统代理(桌面环境返回 "")
+        proxy = config.get_proxy_settings() or _android_system_proxy()
+        if proxy:
+            session_kwargs["proxy"] = proxy
+        return session_kwargs''',
     ),
 ]
 

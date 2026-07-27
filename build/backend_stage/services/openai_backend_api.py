@@ -1550,11 +1550,18 @@ class OpenAIBackendAPI:
     def _bootstrap(self) -> None:
         """预热首页，并提取 PoW 相关脚本引用。"""
         self._apply_cf_clearance()
-        response = self.session.get(
-            self.base_url + "/",
-            headers=self._bootstrap_headers(),
-            timeout=30,
-        )
+        try:
+            response = self.session.get(
+                self.base_url + "/",
+                headers=self._bootstrap_headers(),
+                timeout=30,
+            )
+        except Exception as exc:
+            hint = ""
+            if cf_bypass is not None and cf_bypass.available():
+                hint = ("(WebView 已取到 clearance 但连接仍被重置, 多为 httpx 与系统网络出口不一致: "
+                        "请在设置中配置与系统/VPN 相同的代理后重试)")
+            raise RuntimeError(f"bootstrap 连接失败: {exc.__class__.__name__}: {exc} {hint}") from exc
         if response.status_code in (403, 503) and self._apply_cf_clearance(force=True):
             print(f"[cf] bootstrap {response.status_code}, 已刷新 Cloudflare clearance, 重试一次", flush=True)
             response = self.session.get(

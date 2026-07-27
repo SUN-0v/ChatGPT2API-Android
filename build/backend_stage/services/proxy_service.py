@@ -10,9 +10,28 @@ from curl_cffi.requests import Session
 from services.config import config
 
 
+def _android_system_proxy() -> str:
+    """Android: 读取系统代理, 返回 "http://host:port"; 非 Android / 无系统代理返回 ""。
+
+    背景: WebView 走系统代理/VPN 能访问 chatgpt.com, 而 httpx 读不到 Android
+    系统代理会直连, 导致连接被重置(SSL EOF)。cf_clearance 又与出口 IP 绑定,
+    两侧必须走同一出口。
+    """
+    try:
+        from com.chatgpt2api.server import CfClearanceHelper  # Chaquopy import hook
+
+        raw = str(CfClearanceHelper.getSystemProxy() or "").strip()
+        if raw:
+            return "http://" + raw
+    except Exception:
+        pass
+    return ""
+
+
 class ProxySettingsStore:
     def build_session_kwargs(self, **session_kwargs) -> dict[str, object]:
-        proxy = config.get_proxy_settings()
+        # 手动配置的代理优先; 未配置时自动跟随 Android 系统代理(桌面环境返回 "")
+        proxy = config.get_proxy_settings() or _android_system_proxy()
         if proxy:
             session_kwargs["proxy"] = proxy
         return session_kwargs

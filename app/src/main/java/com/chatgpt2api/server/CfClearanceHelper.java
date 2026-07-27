@@ -1,6 +1,7 @@
 package com.chatgpt2api.server;
 
 import android.content.Context;
+import android.net.ConnectivityManager;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
@@ -131,6 +132,32 @@ public final class CfClearanceHelper {
         });
         if (!finished && result[0] == null) return error("internal timeout");
         return result[0] != null ? result[0] : error("no result");
+    }
+
+    /**
+     * 返回系统代理 "host:port"(无系统代理/异常时返回空串)。
+     * 背景: WebView 走系统代理/VPN 能访问 chatgpt.com, 而 httpx 读不到 Android
+     * 系统代理会直连导致连接被重置; Python 用此方法对齐两侧网络出口。
+     */
+    public static String getSystemProxy() {
+        try {
+            Context ctx = appContext;
+            if (ctx != null) {
+                ConnectivityManager cm =
+                        (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm != null) {
+                    android.net.ProxyInfo pi = cm.getDefaultProxy();
+                    if (pi != null && pi.getHost() != null && pi.getPort() > 0) {
+                        return pi.getHost() + ":" + pi.getPort();
+                    }
+                }
+            }
+            String host = android.net.Proxy.getDefaultHost();
+            int port = android.net.Proxy.getDefaultPort();
+            if (host != null && port > 0) return host + ":" + port;
+        } catch (Throwable ignored) {
+        }
+        return "";
     }
 
     /**
