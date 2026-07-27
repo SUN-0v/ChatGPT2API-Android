@@ -54,6 +54,8 @@ Chaquopy 对部分原生包没有 Android 构建,移植层做了以下适配(由
 2. Python `cf_bypass` 取回 clearance Cookie 与 WebView 真实 UA,注入 httpx 会话并移除与 Android UA 矛盾的 Windows/Edge 高熵头;
 3. 后续请求凭 clearance 通过 CF;过期(15 分钟)或被 403/503 拒绝时自动刷新重试。刷新前会先定向清空目标站残留 Cookie(CookieManager 为应用级共享存储),确保轮询拿到的是 CF 本次新签发的 clearance,而非已被拒绝的旧值。
 
+4. 首页预热(bootstrap)被 403/503 拒绝时**降级而非报错**:部分网络下上游只拦截 HTML 导航页,而 `/backend-api/*` 接口仍可直连;此时回退默认 PoW 脚本,由后续真实请求判定可用性。
+
 注意:clearance 与 UA、出口 IP 绑定。WebView 走系统代理/VPN,httpx 默认读不到 Android 系统代理——App 会在未手动配置代理时**自动跟随系统代理**保持两侧出口一致;使用 VPN(TUN 模式)时无需任何配置。**若设备出口 IP 被 Cloudflare 风控(表现为 clearance 获取超时),请在设置中配置代理**。首次对话会比桌面版慢数秒(WebView 放行耗时)。
 
 ### 已知限制

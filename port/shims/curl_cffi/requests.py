@@ -300,6 +300,12 @@ class Session:
         except Exception:
             pass
 
+    def __del__(self) -> None:  # noqa: D105 - 避免连接池泄漏刷 ResourceWarning
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def __enter__(self) -> "Session":
         return self
 

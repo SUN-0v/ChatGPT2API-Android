@@ -1569,6 +1569,14 @@ class OpenAIBackendAPI:
                 headers=self._bootstrap_headers(),
                 timeout=30,
             )
+        if response.status_code in (403, 503):
+            # 首页被拒不再致命: 部分网络下上游只拦截 HTML 导航页,
+            # /backend-api/* 接口仍可直连(真机实测); 回退默认 PoW 脚本,
+            # 由后续真实请求(sentinel/conversation)判定可用性。
+            print(f"[cf] bootstrap 首页仍 {response.status_code}, 回退默认 PoW 脚本继续", flush=True)
+            self.pow_script_sources = [DEFAULT_POW_SCRIPT]
+            self.pow_data_build = ""
+            return
         ensure_ok(response, "bootstrap")
         self.pow_script_sources, self.pow_data_build = parse_pow_resources(response.text)
         if not self.pow_script_sources:
