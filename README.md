@@ -73,6 +73,10 @@ gradle assembleRelease
 # 产物: app/build/outputs/apk/release/app-release.apk
 ```
 
+**aarch64(ARM64)Linux 构建**: 一键脚本 `sudo tools/build_on_aarch64.sh`(幂等,
+自动完成 Temurin JDK 17 + Gradle 8.9 + Android SDK 34 部署, aapt2 经 qemu-x86_64 + binfmt_misc 透明执行)。
+原理与手动步骤见 [docs/BUILD_AARCH64.md](docs/BUILD_AARCH64.md)。
+
 签名密钥 `release.keystore`(口令均为 `chatgpt2api`)仅用于 sideload 自签,便于覆盖安装升级。
 
 ## 环境要求
