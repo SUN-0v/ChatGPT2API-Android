@@ -1,0 +1,87 @@
+plugins {
+    id 'com.android.application'
+    id 'com.chaquo.python'
+}
+
+android {
+    namespace 'com.chatgpt2api.server'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.chatgpt2api.server'
+        minSdk 26
+        targetSdk 34
+        versionCode 3
+        versionName '1.2.3'
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    signingConfigs {
+        release {
+            storeFile rootProject.file('release.keystore')
+            storePassword 'chatgpt2api'
+            keyAlias 'chatgpt2api'
+            keyPassword 'chatgpt2api'
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+        }
+    }
+}
+
+// backend.zip 内容指纹 -> BuildConfig.BACKEND_STAMP, 变更时触发 App 重新解压后端
+def backendZip = file('src/main/assets/backend.zip')
+def backendStamp = 'dev'
+if (backendZip.exists()) {
+    def md = java.security.MessageDigest.getInstance('MD5')
+    md.update(backendZip.bytes)
+    def digest = md.digest()
+    def sb = new StringBuilder()
+    for (int i = 0; i < 6 && i < digest.length; i++) {
+        sb.append(String.format('%02x', digest[i]))
+    }
+    backendStamp = sb.toString()
+}
+
+android.defaultConfig.buildConfigField 'String', 'BACKEND_STAMP', "\"${backendStamp}\""
+
+chaquopy {
+    defaultConfig {
+        version '3.13'
+        pyc {
+            src false
+        }
+        pip {
+            // 服务端框架(与本地验证一致的版本)
+            install 'fastapi==0.125.0'
+            install 'starlette==0.50.0'
+            install 'pydantic==1.10.26'   // Chaquopy 无 pydantic-core, 必须用纯 Python 的 v1
+            install 'uvicorn==0.51.0'
+            // HTTP 客户端: curl_cffi shim 的底层 + openai_register 直接使用
+            install 'httpx==0.28.1'
+            install 'requests==2.34.2'
+            // 原生包(来自 Chaquopy 仓库)
+            install 'pillow'
+            install 'brotli'
+            install 'zstandard'
+            // 纯 Python 业务依赖
+            install 'python-multipart'
+            install 'sqlalchemy'
+            install 'gitpython'
+        }
+    }
+}
