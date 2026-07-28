@@ -116,15 +116,19 @@ def anthropic_sse_stream(items) -> Iterator[str]:
 
 
 def iter_sse_payloads(response: requests.Response) -> Iterator[str]:
+    data_lines: list[str] = []
     for raw_line in response.iter_lines():
-        if not raw_line:
-            continue
         line = raw_line.decode("utf-8", errors="ignore") if isinstance(raw_line, bytes) else str(raw_line)
+        if not line:
+            if data_lines:
+                yield "\n".join(data_lines)
+                data_lines = []
+            continue
         if not line.startswith("data:"):
             continue
-        payload = line[5:].strip()
-        if payload:
-            yield payload
+        data_lines.append(line[5:].lstrip())
+    if data_lines:
+        yield "\n".join(data_lines)
 
 
 def save_images_from_text(text: str, prefix: str) -> list[Path]:

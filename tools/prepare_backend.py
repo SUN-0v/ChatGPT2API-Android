@@ -60,6 +60,242 @@ GIT_PATCHES: list[tuple[str, str, str]] = [
 ]
 
 
+# 生图协议补丁: 跟进 ChatGPT Web 当前模型、Sentinel PoW 与 SSE 结果结构。
+IMAGE_PATCHES: list[tuple[str, str, str]] = [
+    (
+        "config.json",
+        '  "global_system_prompt": "",\n',
+        '  "global_system_prompt": "",\n  "default_upstream_model_name": "gpt-5-5",\n',
+    ),
+    (
+        "services/config.py",
+        '''    @property
+    def images_dir(self) -> Path:''',
+        '''    @property
+    def default_upstream_model_name(self) -> str:
+        return str(self.data.get("default_upstream_model_name") or "gpt-5-5").strip() or "gpt-5-5"
+
+    @property
+    def images_dir(self) -> Path:''',
+    ),
+    (
+        "services/config.py",
+        '        data["global_system_prompt"] = self.global_system_prompt\n',
+        '        data["global_system_prompt"] = self.global_system_prompt\n'
+        '        data["default_upstream_model_name"] = self.default_upstream_model_name\n',
+    ),
+    (
+        "services/openai_backend_api.py",
+        'DEFAULT_CLIENT_VERSION = "prod-be885abbfcfe7b1f511e88b3003d9ee44757fbad"\n'
+        'DEFAULT_CLIENT_BUILD_NUMBER = "5955942"',
+        'DEFAULT_CLIENT_VERSION = "prod-a194cd50d4416d3c0b47c740f206b12ce60f5887"\n'
+        'DEFAULT_CLIENT_BUILD_NUMBER = "6708908"',
+    ),
+    (
+        "services/openai_backend_api.py",
+        '        fp.setdefault("impersonate", "edge101")',
+        '        fp.setdefault("impersonate", "chrome110")',
+    ),
+    (
+        "services/openai_backend_api.py",
+        '''        if base_model == "gpt-image-2":
+            return "gpt-5-3"''',
+        '''        if base_model == "gpt-image-2":
+            return config.default_upstream_model_name''',
+    ),
+    (
+        "services/openai_backend_api.py",
+        '''            if metadata.get("async_task_type") != "image_gen":
+                continue
+            if content.get("content_type") != "multimodal_text":
+                continue
+            file_ids, sediment_ids = [], []
+            for part in content.get("parts") or []:
+                text = (part.get("asset_pointer") or "") if isinstance(part, dict) else (
+                    part if isinstance(part, str) else "")
+                for hit in file_pat.findall(text):
+                    if hit not in file_ids:
+                        file_ids.append(hit)
+                for hit in sed_pat.findall(text):
+                    if hit not in sediment_ids:
+                        sediment_ids.append(hit)''',
+        '''            content_text = json.dumps(content, ensure_ascii=False)
+            has_image_pointer = bool(file_pat.search(content_text) or sed_pat.search(content_text))
+            if metadata.get("async_task_type") != "image_gen" and not has_image_pointer:
+                continue
+            file_ids, sediment_ids = [], []
+            for hit in file_pat.findall(content_text):
+                if hit not in file_ids:
+                    file_ids.append(hit)
+            for hit in sed_pat.findall(content_text):
+                if hit not in sediment_ids:
+                    sediment_ids.append(hit)''',
+    ),
+    (
+        "utils/helper.py",
+        '''def iter_sse_payloads(response: requests.Response) -> Iterator[str]:
+    for raw_line in response.iter_lines():
+        if not raw_line:
+            continue
+        line = raw_line.decode("utf-8", errors="ignore") if isinstance(raw_line, bytes) else str(raw_line)
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if payload:
+            yield payload''',
+        '''def iter_sse_payloads(response: requests.Response) -> Iterator[str]:
+    data_lines: list[str] = []
+    for raw_line in response.iter_lines():
+        line = raw_line.decode("utf-8", errors="ignore") if isinstance(raw_line, bytes) else str(raw_line)
+        if not line:
+            if data_lines:
+                yield "\\n".join(data_lines)
+                data_lines = []
+            continue
+        if not line.startswith("data:"):
+            continue
+        data_lines.append(line[5:].lstrip())
+    if data_lines:
+        yield "\\n".join(data_lines)''',
+    ),
+    (
+        "utils/pow.py",
+        'DOCUMENT_KEYS = ["_reactListeningo743lnnpvdg", "location"]',
+        'DOCUMENT_KEYS = ["__reactContainer$fzelfjyxej8", "_reactListening5dehydibo78", "location"]\n'
+        'SCREEN_RESOLUTIONS = [[1920, 1080], [1440, 900], [2560, 1440], [3840, 2160]]',
+    ),
+    ("utils/pow.py", "        random.choice([3000, 4000, 5000]),", "        sum(random.choice(SCREEN_RESOLUTIONS)),"),
+    ("utils/pow.py", "        4294705152,\n        0,", "        4294705152,\n        1,"),
+    (
+        "utils/pow.py",
+        '        "en-US,es-US,en,es",\n        0,',
+        '        "en-US,es-US,en,es",\n        random.random(),',
+    ),
+    (
+        "utils/pow.py",
+        '''        random.choice(CORES),
+        time.time() * 1000 - (time.perf_counter() * 1000),
+    ]''',
+        '''        random.choice(CORES),
+        time.time() * 1000 - (time.perf_counter() * 1000),
+        0, 0, 0, 0, 0, 0,
+        0,
+    ]''',
+    ),
+    (
+        "utils/pow.py",
+        '''    seed = format(random.random())
+    config = build_pow_config(user_agent, script_sources=script_sources, data_build=data_build)
+    answer, _ = _pow_generate(seed, "0fffff", config)
+    return "gAAAAAC" + answer''',
+        '''    config = build_pow_config(user_agent, script_sources=script_sources, data_build=data_build)
+    return "gAAAAAC" + pybase64.b64encode(
+        json.dumps(config, separators=(",", ":"), ensure_ascii=False).encode()
+    ).decode()''',
+    ),
+    (
+        "services/protocol/conversation.py",
+        '''def extract_conversation_ids(payload: str) -> tuple[str, list[str], list[str]]:
+    conversation_match = re.search(r'"conversation_id"\\s*:\\s*"([^"]+)"', payload)
+    conversation_id = conversation_match.group(1) if conversation_match else ""
+    file_ids = re.findall(r"(file[-_][A-Za-z0-9]+)", payload)
+    sediment_ids = re.findall(r"sediment://([A-Za-z0-9_-]+)", payload)
+    return conversation_id, file_ids, sediment_ids''',
+        '''FILE_SERVICE_ID_RE = re.compile(r"file-service://([A-Za-z0-9_-]+)")
+FILE_ID_RE = re.compile(r"\\b(file[-_](?!service\\b)[A-Za-z0-9_-]+)\\b")
+SEDIMENT_ID_RE = re.compile(r"sediment://([A-Za-z0-9_-]+)")
+
+
+def extract_conversation_ids(payload: str) -> tuple[str, list[str], list[str]]:
+    conversation_match = re.search(r'"conversation_id"\\s*:\\s*"([^"]+)"', payload)
+    conversation_id = conversation_match.group(1) if conversation_match else ""
+    file_ids: list[str] = []
+    add_unique(file_ids, FILE_SERVICE_ID_RE.findall(payload))
+    add_unique(file_ids, FILE_ID_RE.findall(payload))
+    sediment_ids = SEDIMENT_ID_RE.findall(payload)
+    return conversation_id, file_ids, sediment_ids''',
+    ),
+    (
+        "services/protocol/conversation.py",
+        '''def is_image_tool_event(event: dict[str, Any]) -> bool:
+    value = event.get("v")
+    message = event.get("message") or (value.get("message") if isinstance(value, dict) else None)
+    if not isinstance(message, dict):
+        return False
+    metadata = message.get("metadata") or {}
+    author = message.get("author") or {}
+    return author.get("role") == "tool" and metadata.get("async_task_type") == "image_gen"''',
+        '''def iter_event_messages(value: Any) -> Iterator[dict[str, Any]]:
+    if isinstance(value, dict):
+        if isinstance(value.get("author"), dict) and isinstance(value.get("content"), dict):
+            yield value
+        for child in value.values():
+            yield from iter_event_messages(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from iter_event_messages(child)
+
+
+def is_image_tool_event(event: dict[str, Any]) -> bool:
+    for message in iter_event_messages(event):
+        metadata = message.get("metadata") or {}
+        author = message.get("author") or {}
+        if author.get("role") != "tool":
+            continue
+        if metadata.get("async_task_type") == "image_gen":
+            return True
+        content = message.get("content") or {}
+        if any(
+            isinstance(part, dict) and (
+                part.get("content_type") == "image_asset_pointer"
+                or str(part.get("asset_pointer") or "").startswith(("file-service://", "sediment://"))
+            )
+            for part in content.get("parts") or []
+        ):
+            return True
+    return False
+
+
+def is_user_message_event(event: dict[str, Any]) -> bool:
+    return any(
+        str((message.get("author") or {}).get("role") or "").lower() == "user"
+        for message in iter_event_messages(event)
+    )''',
+    ),
+    (
+        "services/protocol/conversation.py",
+        '''    if isinstance(event, dict) and is_image_tool_event(event):
+        add_unique(state.file_ids, file_ids)
+        add_unique(state.sediment_ids, sediment_ids)''',
+        '''    is_patch = isinstance(event, dict) and event.get("o") == "patch"
+    is_user_message = isinstance(event, dict) and is_user_message_event(event)
+    image_context = (
+        (isinstance(event, dict) and is_image_tool_event(event))
+        or (state.tool_invoked is True and not is_user_message)
+        or (is_patch and not is_user_message and ("asset_pointer" in payload or "file-service://" in payload))
+    )
+    if image_context:
+        add_unique(state.file_ids, file_ids)
+        add_unique(state.sediment_ids, sediment_ids)''',
+    ),
+    (
+        "services/protocol/conversation.py",
+        '''    if message:
+        yield ImageOutput(kind="message", model=request.model, index=index, total=total, text=message)
+
+
+def stream_codex_image_outputs''',
+        '''    if message:
+        yield ImageOutput(kind="message", model=request.model, index=index, total=total, text=message)
+        return
+    raise RuntimeError("Upstream image generation returned no image result")
+
+
+def stream_codex_image_outputs''',
+    ),
+]
+
+
 # Cloudflare clearance 桥补丁: chatgpt.com 按 TLS 指纹校验, httpx 无伪装能力,
 # 接入 cf_bypass(WebView clearance 桥)使对话链路可用。
 CF_PATCHES: list[tuple[str, str, str]] = [
@@ -240,7 +476,7 @@ def copy_backend(src_repo: Path, stage: Path) -> None:
 
 
 def apply_patches(stage: Path) -> None:
-    for rel, old, new in PYDANTIC_PATCHES + GIT_PATCHES + CF_PATCHES:
+    for rel, old, new in PYDANTIC_PATCHES + GIT_PATCHES + IMAGE_PATCHES + CF_PATCHES:
         path = stage / rel
         text = path.read_text(encoding="utf-8")
         count = text.count(old)
@@ -259,6 +495,9 @@ def add_port_layer(stage: Path, web_out: Path | None) -> None:
         else:
             shutil.copy2(item, d)
     shutil.copy2(PORT_DIR / "android_entry.py", stage / "android_entry.py")
+    data_dir = stage / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "image_owners.json").write_text("{}", encoding="utf-8")
     if web_out is not None:
         if not (web_out / "index.html").exists():
             raise SystemExit(f"web_out 无效(缺少 index.html): {web_out}")

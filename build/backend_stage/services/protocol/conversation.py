@@ -540,29 +540,71 @@ def add_unique(values: list[str], candidates: list[str]) -> None:
             values.append(candidate)
 
 
+FILE_SERVICE_ID_RE = re.compile(r"file-service://([A-Za-z0-9_-]+)")
+FILE_ID_RE = re.compile(r"\b(file[-_](?!service\b)[A-Za-z0-9_-]+)\b")
+SEDIMENT_ID_RE = re.compile(r"sediment://([A-Za-z0-9_-]+)")
+
+
 def extract_conversation_ids(payload: str) -> tuple[str, list[str], list[str]]:
     conversation_match = re.search(r'"conversation_id"\s*:\s*"([^"]+)"', payload)
     conversation_id = conversation_match.group(1) if conversation_match else ""
-    file_ids = re.findall(r"(file[-_][A-Za-z0-9]+)", payload)
-    sediment_ids = re.findall(r"sediment://([A-Za-z0-9_-]+)", payload)
+    file_ids: list[str] = []
+    add_unique(file_ids, FILE_SERVICE_ID_RE.findall(payload))
+    add_unique(file_ids, FILE_ID_RE.findall(payload))
+    sediment_ids = SEDIMENT_ID_RE.findall(payload)
     return conversation_id, file_ids, sediment_ids
 
 
+def iter_event_messages(value: Any) -> Iterator[dict[str, Any]]:
+    if isinstance(value, dict):
+        if isinstance(value.get("author"), dict) and isinstance(value.get("content"), dict):
+            yield value
+        for child in value.values():
+            yield from iter_event_messages(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from iter_event_messages(child)
+
+
 def is_image_tool_event(event: dict[str, Any]) -> bool:
-    value = event.get("v")
-    message = event.get("message") or (value.get("message") if isinstance(value, dict) else None)
-    if not isinstance(message, dict):
-        return False
-    metadata = message.get("metadata") or {}
-    author = message.get("author") or {}
-    return author.get("role") == "tool" and metadata.get("async_task_type") == "image_gen"
+    for message in iter_event_messages(event):
+        metadata = message.get("metadata") or {}
+        author = message.get("author") or {}
+        if author.get("role") != "tool":
+            continue
+        if metadata.get("async_task_type") == "image_gen":
+            return True
+        content = message.get("content") or {}
+        if any(
+            isinstance(part, dict) and (
+                part.get("content_type") == "image_asset_pointer"
+                or str(part.get("asset_pointer") or "").startswith(("file-service://", "sediment://"))
+            )
+            for part in content.get("parts") or []
+        ):
+            return True
+    return False
+
+
+def is_user_message_event(event: dict[str, Any]) -> bool:
+    return any(
+        str((message.get("author") or {}).get("role") or "").lower() == "user"
+        for message in iter_event_messages(event)
+    )
 
 
 def update_conversation_state(state: ConversationState, payload: str, event: dict[str, Any] | None = None) -> None:
     conversation_id, file_ids, sediment_ids = extract_conversation_ids(payload)
     if conversation_id and not state.conversation_id:
         state.conversation_id = conversation_id
-    if isinstance(event, dict) and is_image_tool_event(event):
+    is_patch = isinstance(event, dict) and event.get("o") == "patch"
+    is_user_message = isinstance(event, dict) and is_user_message_event(event)
+    image_context = (
+        (isinstance(event, dict) and is_image_tool_event(event))
+        or (state.tool_invoked is True and not is_user_message)
+        or (is_patch and not is_user_message and ("asset_pointer" in payload or "file-service://" in payload))
+    )
+    if image_context:
         add_unique(state.file_ids, file_ids)
         add_unique(state.sediment_ids, sediment_ids)
     if not isinstance(event, dict):
@@ -801,6 +843,8 @@ def stream_image_outputs(
 
     if message:
         yield ImageOutput(kind="message", model=request.model, index=index, total=total, text=message)
+        return
+    raise RuntimeError("Upstream image generation returned no image result")
 
 
 def stream_codex_image_outputs(

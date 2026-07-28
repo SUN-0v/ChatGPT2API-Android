@@ -40,8 +40,8 @@ class ChatRequirements:
     raw_finalize: Optional[Dict[str, Any]] = None
 
 
-DEFAULT_CLIENT_VERSION = "prod-be885abbfcfe7b1f511e88b3003d9ee44757fbad"
-DEFAULT_CLIENT_BUILD_NUMBER = "5955942"
+DEFAULT_CLIENT_VERSION = "prod-a194cd50d4416d3c0b47c740f206b12ce60f5887"
+DEFAULT_CLIENT_BUILD_NUMBER = "6708908"
 DEFAULT_POW_SCRIPT = "https://chatgpt.com/backend-api/sentinel/sdk.js"
 CODEX_IMAGE_MODEL = "codex-gpt-image-2"
 CODEX_IMAGE_RESPONSES_MODEL = "gpt-5.5"
@@ -189,7 +189,7 @@ class OpenAIBackendAPI:
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
         )
-        fp.setdefault("impersonate", "edge101")
+        fp.setdefault("impersonate", "chrome110")
         fp.setdefault("oai-device-id", new_uuid())
         fp.setdefault("oai-session-id", new_uuid())
         fp.setdefault("sec-ch-ua", '"Microsoft Edge";v="143", "Chromium";v="143", "Not A(Brand";v="24"')
@@ -575,7 +575,7 @@ class OpenAIBackendAPI:
         if not base_model:
             return "auto"
         if base_model == "gpt-image-2":
-            return "gpt-5-3"
+            return config.default_upstream_model_name
         if base_model == CODEX_IMAGE_MODEL:
             return base_model
         return "auto"
@@ -836,20 +836,17 @@ class OpenAIBackendAPI:
             content = message.get("content") or {}
             if author.get("role") != "tool":
                 continue
-            if metadata.get("async_task_type") != "image_gen":
-                continue
-            if content.get("content_type") != "multimodal_text":
+            content_text = json.dumps(content, ensure_ascii=False)
+            has_image_pointer = bool(file_pat.search(content_text) or sed_pat.search(content_text))
+            if metadata.get("async_task_type") != "image_gen" and not has_image_pointer:
                 continue
             file_ids, sediment_ids = [], []
-            for part in content.get("parts") or []:
-                text = (part.get("asset_pointer") or "") if isinstance(part, dict) else (
-                    part if isinstance(part, str) else "")
-                for hit in file_pat.findall(text):
-                    if hit not in file_ids:
-                        file_ids.append(hit)
-                for hit in sed_pat.findall(text):
-                    if hit not in sediment_ids:
-                        sediment_ids.append(hit)
+            for hit in file_pat.findall(content_text):
+                if hit not in file_ids:
+                    file_ids.append(hit)
+            for hit in sed_pat.findall(content_text):
+                if hit not in sediment_ids:
+                    sediment_ids.append(hit)
             parts_summary = []
             for part in content.get("parts") or []:
                 if isinstance(part, dict):

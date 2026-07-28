@@ -46,6 +46,13 @@ Chaquopy 对部分原生包没有 Android 构建,移植层做了以下适配(由
 | GitPython | **import 时即探测 git 二进制**, Android 上直接 `ImportError: Bad git executable` 拖垮启动 | `GIT_PYTHON_REFRESH=quiet`(bootstrap/android_entry 启动前设置)+ `factory.py` 容错补丁(git 后端仅选用时才报清晰错误) |
 | FastAPI/uvicorn | — | 固定已验证版本(fastapi 0.125.0 + pydantic 1.10.26 + uvicorn 0.51.0) |
 
+### 生图协议兼容
+
+APK 内嵌后端会在打包时应用当前 ChatGPT Web 生图兼容补丁：默认上游模型为
+`gpt-5-5`，同步新版 Sentinel PoW，支持多行 SSE、嵌套图片工具事件和完整文件 ID。
+若上游没有返回图片，接口会明确报错并触发失败处理，不再返回成功的空 `data`。
+这些修改由 `tools/prepare_backend.py` 自动应用，重新打包时不会丢失。
+
 ### Cloudflare 放行(对话链路)
 
 `chatgpt.com` 按 TLS/HTTP2 指纹校验客户端,httpx 无 `impersonate` 能力,直连会被 403(managed challenge)。本移植采用 **WebView clearance 桥**(FlareSolverr 同款模式):

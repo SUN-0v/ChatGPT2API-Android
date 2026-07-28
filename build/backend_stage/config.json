@@ -14,6 +14,7 @@
   "base_url": "",
   "sensitive_words": [],
   "global_system_prompt": "",
+  "default_upstream_model_name": "gpt-5-5",
   "ai_review": {
     "enabled": false,
     "base_url": "",
